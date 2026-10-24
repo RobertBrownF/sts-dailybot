@@ -1,0 +1,21 @@
+name: Run StS Daily Bot
+
+on:
+  schedule:
+    - cron: '0 6 * * *' # Запуск каждый день в 06:00 по времени UTC
+  workflow_dispatch: # Позволит запускать бота вручную кнопкой
+
+jobs:
+  run-bot:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-network: true
+
+      - name: Run script
+        run: python bot.py
