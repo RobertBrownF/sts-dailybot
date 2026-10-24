@@ -1,86 +1,98 @@
 import json
 import urllib.request
 import urllib.error
+import re
 
 # ВСТАВЬТЕ ВАШУ ССЫЛКУ МЕЖДУ КАВЫЧКАМИ НИЖЕ:
 DISCORD_WEBHOOK_URL = "https://discord.com/api/webhooks/1563585917363552417/tMoxLqmxT_b85qBDFF2uzlCt0oa-by-NyRIsHIW-GR8slgKiDeZPmmHSaY5c63wkYkTH"
 
-def extract_run_details(raw_data):
-    """Безопасно извлекает первый элемент из ответа API, как бы он ни был упакован"""
-    run = None
-    if isinstance(raw_data, list) and len(raw_data) > 0:
-        run = raw_data[0]
-    elif isinstance(raw_data, dict):
-        # Если API упаковал список в объект типа {"items": [...]} или {"entries": [...]}
-        for key in ["items", "entries", "runs", "leaderboard"]:
-            if key in raw_data and isinstance(raw_data[key], list) and len(raw_data[key]) > 0:
-                run = raw_data[key][0]
-                break
-        if not run and len(raw_data) > 0:
-            # На крайний случай берем первый попавшийся элемент словаря, если там структура записей
-            first_val = next(iter(raw_data.values()))
-            if isinstance(first_val, list) and len(first_val) > 0:
-                run = first_val[0]
-                
-    if run and isinstance(run, dict):
-        return {
-            "character": run.get("character_chosen", run.get("character", "Неизвестно")),
-            "seed": run.get("seed", "Неизвестно"),
-            "modifiers": run.get("modifiers", [])
-        }
-    return None
+TRANSLATE_CHARS = {
+    "IRONCLAD": "👤 Бронированный (Ironclad)",
+    "SILENT": "👤 Скрытная (Silent)",
+    "DEFECT": "👤 Дефект (Defect)",
+    "WATCHER": "👤 Созерцательница (Watcher)",
+    "NECOBINDER": "💀 Некробиндер (Necobinder)",
+    "REGENT": "⏳ Регент (Regent)"
+}
 
-def get_daily_data(is_beta=False):
-    base_url = "https://spire-codex.com"
+def get_daily_from_web(is_beta=False):
+    # Заходим на живые страницы сайта, где люди смотрят лидерборды
+    url = "https://spire-codex.com"
     if is_beta:
-        base_url += "&channel=beta"
+        url += "&channel=beta"
+    else:
+        url += "&channel=stable"
         
     try:
-        req = urllib.request.Request(base_url, headers={'User-Agent': 'Mozilla/5.0'})
+        req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'})
         with urllib.request.urlopen(req, timeout=15) as response:
-            body = response.read().decode('utf-8')
-            print(f"[API Стриминг] Ответ сервера (Beta={is_beta}): {body[:300]}...") # Логируем ответ для отладки
-            data = json.loads(body)
-            return extract_run_details(data)
+            html = response.read().decode('utf-8')
+            
+            # Находим данные, которые сайт прячет внутри скриптов для отображения таблицы
+            # Ищем подстроку с персонажем
+            char_match = re.search(r'"character_chosen"\s*:\s*"([^"]+)"', html)
+            seed_match = re.search(r'"seed"\s*:\s*"?(-?\d+)"?', html)
+            mods_match = re.search(r'"modifiers"\s*:\s*(\[[^\]]*\])', html)
+            
+            if char_match and seed_match:
+                raw_char = char_match.group(1)
+                seed = seed_match.group(1)
+                
+                # Безопасно вытаскиваем массив модификаторов
+                modifiers = []
+                if mods_match:
+                    try:
+                        modifiers = json.loads(mods_match.group(1))
+                    except:
+                        pass
+                
+                return {
+                    "character": TRANSLATE_CHARS.get(raw_char, raw_char),
+                    "seed": seed,
+                    "modifiers": modifiers
+                }
     except Exception as e:
-        print(f"Ошибка при запросе к Spire Codex (Beta={is_beta}): {e}")
+        print(f"[ЛОГ] Не удалось прочитать страницу (Beta={is_beta}): {e}")
     return None
 
 def send_to_discord():
-    main = get_daily_data(is_beta=False)
-    beta = get_daily_data(is_beta=True)
+    print("[СТАРТ] Чтение страниц Spire Codex...")
+    main = get_daily_from_web(is_beta=False)
+    beta = get_daily_from_web(is_beta=True)
 
     def format_mods(mods):
         if not mods:
-            return "Стандартные"
-        return ", ".join(str(m) for m in mods)
+            return "Стандартные модификаторы"
+        return ", ".join(str(m).replace('_', ' ') for m in mods)
 
     payload = {"embeds": []}
 
     if main:
+        print(f"[УСПЕХ] Найдена основная ветка. Сид: {main['seed']}")
         payload["embeds"].append({
             "title": "⚔️ Slay the Spire 2: Дейлик (Основная ветка)",
             "color": 3066993,
             "fields": [
-                {"name": "👤 Персонаж", "value": str(main["character"]), "inline": True},
+                {"name": "Класс персонажа", "value": str(main["character"]), "inline": True},
                 {"name": "🌱 Сид (Seed)", "value": f"`{main['seed']}`", "inline": True},
-                {"name": "✨ Модификаторы", "value": format_mods(main["modifiers"]), "inline": False}
+                {"name": "✨ Модификаторы дня", "value": format_mods(main["modifiers"]), "inline": False}
             ]
         })
 
     if beta:
+        print(f"[УСПЕХ] Найдена БЕТА-ветка. Сид: {beta['seed']}")
         payload["embeds"].append({
             "title": "🧪 Slay the Spire 2: Дейлик (БЕТА-ветка)",
             "color": 10181046,
             "fields": [
-                {"name": "👤 Персонаж", "value": str(beta["character"]), "inline": True},
+                {"name": "Класс персонажа", "value": str(beta["character"]), "inline": True},
                 {"name": "🌱 Сид (Seed)", "value": f"`{beta['seed']}`", "inline": True},
-                {"name": "✨ Модификаторы", "value": format_mods(beta["modifiers"]), "inline": False}
+                {"name": "✨ Модификаторы дня", "value": format_mods(beta["modifiers"]), "inline": False}
             ]
         })
 
     if not payload["embeds"]:
-        print("Критическая ошибка: Обе ветки вернули пустоту. Проверьте логи сервера выше!")
+        print("[ОТМЕНА] Не удалось собрать данные со страницы сайта.")
         return
 
     jsondata = json.dumps(payload).encode('utf-8')
@@ -92,12 +104,9 @@ def send_to_discord():
     
     try:
         with urllib.request.urlopen(req, timeout=15) as res:
-            print(f"Успешно доставили пакет в Discord! Код ответа сервера: {res.getcode()}")
-    except urllib.error.HTTPError as e:
-        print(f"Дискорд отклонил пакет. Код ошибки: {e.code}")
-        print(f"Ответ Дискорда: {e.read().decode('utf-8')}")
+            print(f"[ДИСКОРД] Пакет успешно доставлен! Код: {res.getcode()}")
     except Exception as e:
-        print(f"Ошибка отправки: {e}")
+        print(f"[ДИСКОРД ОШИБКА] {e}")
 
 if __name__ == "__main__":
     send_to_discord()
