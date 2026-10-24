@@ -2,21 +2,21 @@ import json
 import urllib.request
 import urllib.error
 import re
+import os
 
-# ВСТАВЬТЕ ВАШУ ССЫЛКУ МЕЖДУ КАВЫЧКАМИ НИЖЕ:
-DISCORD_WEBHOOK_URL = "https://discord.com/api/webhooks/1563585917363552417/tMoxLqmxT_b85qBDFF2uzlCt0oa-by-NyRIsHIW-GR8slgKiDeZPmmHSaY5c63wkYkTH"
+# Робот автоматически возьмет ссылку из секретных настроек GitHub
+DISCORD_WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK")
 
 TRANSLATE_CHARS = {
-    "IRONCLAD": "👤 Бронированный (Ironclad)",
-    "SILENT": "👤 Скрытная (Silent)",
+    "IRONCLAD": "👤 Латоносец (Ironclad)",
+    "SILENT": "👤 Безмолвная (Silent)",
     "DEFECT": "👤 Дефект (Defect)",
-    "WATCHER": "👤 Созерцательница (Watcher)",
-    "NECOBINDER": "💀 Некробиндер (Necobinder)",
-    "REGENT": "⏳ Регент (Regent)"
+    "WATCHER": "👤 Созерцающая (Watcher)",
+    "NECOBINDER": "💀 Призывательница (Necobinder)",
+    "REGENT": "⏳ Наследник (Regent)"
 }
 
 def get_daily_from_web(is_beta=False):
-    # Заходим на живые страницы сайта, где люди смотрят лидерборды
     url = "https://spire-codex.com"
     if is_beta:
         url += "&channel=beta"
@@ -28,8 +28,6 @@ def get_daily_from_web(is_beta=False):
         with urllib.request.urlopen(req, timeout=15) as response:
             html = response.read().decode('utf-8')
             
-            # Находим данные, которые сайт прячет внутри скриптов для отображения таблицы
-            # Ищем подстроку с персонажем
             char_match = re.search(r'"character_chosen"\s*:\s*"([^"]+)"', html)
             seed_match = re.search(r'"seed"\s*:\s*"?(-?\d+)"?', html)
             mods_match = re.search(r'"modifiers"\s*:\s*(\[[^\]]*\])', html)
@@ -38,7 +36,6 @@ def get_daily_from_web(is_beta=False):
                 raw_char = char_match.group(1)
                 seed = seed_match.group(1)
                 
-                # Безопасно вытаскиваем массив модификаторов
                 modifiers = []
                 if mods_match:
                     try:
@@ -56,6 +53,10 @@ def get_daily_from_web(is_beta=False):
     return None
 
 def send_to_discord():
+    if not DISCORD_WEBHOOK_URL:
+        print("[КРИТИЧЕСКАЯ ОШИБКА] Ссылка DISCORD_WEBHOOK не найдена в Секретах GitHub!")
+        return
+
     print("[СТАРТ] Чтение страниц Spire Codex...")
     main = get_daily_from_web(is_beta=False)
     beta = get_daily_from_web(is_beta=True)
