@@ -1,14 +1,13 @@
 import json
 import urllib.request
 import urllib.error
-import re
 import os
-import ssl
 from datetime import datetime
 
 DISCORD_WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK")
+API_KEY = os.environ.get("SPIRE_CODEX_API_KEY")
 
-# Словари для красивого и правильного перевода StS2
+# Словари для правильного перевода и цветов StS2
 TRANSLATE_CHARS = {
     "IRONCLAD": "Латоносец (Ironclad)",
     "SILENT": "Безмолвная (Silent)",
@@ -39,64 +38,47 @@ TRANSLATE_MODS = {
     "Uncertainty": "Неопределенность (Uncertainty)"
 }
 
-def get_real_daily_data(is_beta=False):
-    # Обходим блокировку DNS Гитхаба: стучимся по IP Cloudflare-сервера сайта
-    ip_url = "https://172.67.142"
+def get_daily_from_api(is_beta=False):
+    # Прямой официальный эндпоинт базы данных Spire Codex
+    url = "https://spire-codex.com"
     if is_beta:
-        ip_url += "&channel=beta"
+        url += "&channel=beta"
     else:
-        ip_url += "&channel=stable"
+        url += "&channel=stable"
         
     try:
-        req = urllib.request.Request(
-            ip_url, 
-            headers={
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
-                'Host': 'spire-codex.com' # Передаем Host, чтобы сервер пустил нас
-            }
-        )
-        # Отключаем проверку имени хоста SSL для работы по IP
-        ctx = ssl.create_default_context()
-        ctx.check_hostname = False
-        ctx.verify_mode = ssl.CERT_NONE
+        req = urllib.request.Request(url)
+        # Передаем твой официальный токен авторизации и маскируем под браузер
+        req.add_header('X-API-Key', API_KEY)
+        req.add_header('User-Agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)')
         
-        with urllib.request.urlopen(req, context=ctx, timeout=15) as response:
-            html = response.read().decode('utf-8')
+        with urllib.request.urlopen(req, timeout=15) as response:
+            data = json.loads(response.read().decode('utf-8'))
             
-            # Парсим реальные данные, зашитые в код страницы
-            char_match = re.search(r'"character_chosen"\s*:\s*"([^"]+)"', html)
-            seed_match = re.search(r'"seed"\s*:\s*"?(-?\d+)"?', html)
-            mods_match = re.search(r'"modifiers"\s*:\s*(\[[^\]]*\])', html)
-            asc_match = re.search(r'"ascension_level"\s*:\s*(\d+)', html)
-            
-            if char_match and seed_match:
-                raw_char = char_match.group(1)
-                
-                modifiers = []
-                if mods_match:
-                    try:
-                        modifiers = json.loads(mods_match.group(1))
-                    except:
-                        pass
-                        
-                asc_level = asc_match.group(1) if asc_match else "0"
-                
-                return {
-                    "raw_char": raw_char,
-                    "character": TRANSLATE_CHARS.get(raw_char, raw_char),
-                    "seed": seed_match.group(1),
-                    "modifiers": [TRANSLATE_MODS.get(m, m) for m in modifiers],
-                    "ascension": asc_level
-                }
+            if isinstance(data, list) and len(data) > 0:
+                for run in data:
+                    if run.get("game_mode") == "daily" or run.get("is_daily") is True:
+                        raw_char = run.get("character_chosen", "Неизвестно")
+                        raw_mods = run.get("modifiers", [])
+                        return {
+                            "raw_char": raw_char,
+                            "character": TRANSLATE_CHARS.get(raw_char, raw_char),
+                            "seed": run.get("seed", "Неизвестно"),
+                            "modifiers": [TRANSLATE_MODS.get(m, m) for m in raw_mods],
+                            "ascension": run.get("ascension_level", "0")
+                        }
     except Exception as e:
-        print(f"[ЛОГ] Ошибка сбора данных по IP (Beta={is_beta}): {e}")
+        print(f"[ЛОГ] Ошибка запроса к API (Beta={is_beta}): {e}")
     return None
 
 def send_to_discord():
-    print("[СТАРТ] Сбор живых данных с серверов Spire Codex...")
+    if not API_KEY:
+        print("[ОШИБКА] API-ключ SPIRE_CODEX_API_KEY не найден в Секретах GitHub!")
+        return
+        
     today = datetime.utcnow().strftime("%Y-%m-%d")
-    main = get_real_daily_data(is_beta=False)
-    beta = get_real_daily_data(is_beta=True)
+    main = get_daily_from_api(is_beta=False)
+    beta = get_daily_from_api(is_beta=True)
 
     payload = {"embeds": []}
 
@@ -107,7 +89,7 @@ def send_to_discord():
             "color": CHAR_COLORS.get(char_type, 8421504),
             "fields": [
                 {"name": "👤 Персонаж", "value": main["character"], "inline": True},
-                {"name": "💀 Возвышение", "value": f"Наследник {main['ascension']}" if main['ascension'] != "0" else "0 (Обычная)", "inline": True},
+                {"name": "💀 Возвышение", "value": f"Наследник {main['ascension']}" if str(main['ascension']) != "0" else "0 (Обычная)", "inline": True},
                 {"name": "🌱 Сид (Seed)", "value": f"`{main['seed']}`", "inline": True},
                 {"name": "✨ Модификаторы дня", "value": ", ".join(main["modifiers"]) if main["modifiers"] else "Стандартные", "inline": False}
             ]
@@ -120,18 +102,14 @@ def send_to_discord():
             "color": CHAR_COLORS.get(char_type, 8421504),
             "fields": [
                 {"name": "👤 Персонаж", "value": beta["character"], "inline": True},
-                {"name": "💀 Возвышение", "value": f"Наследник {beta['ascension']}" if beta['ascension'] != "0" else "0 (Обычная)", "inline": True},
+                {"name": "💀 Возвышение", "value": f"Наследник {beta['ascension']}" if str(beta['ascension']) != "0" else "0 (Обычная)", "inline": True},
                 {"name": "🌱 Сид (Seed)", "value": f"`{beta['seed']}`", "inline": True},
                 {"name": "✨ Модификаторы дня", "value": ", ".join(beta["modifiers"]) if beta["modifiers"] else "Стандартные", "inline": False}
             ]
         })
 
     if not payload["embeds"]:
-        print("[ОТМЕНА] Игровой сервер не отдал данные.")
-        return
-
-    if not DISCORD_WEBHOOK_URL:
-        print("[ОШИБКА] Переменная DISCORD_WEBHOOK не найдена!")
+        print("[ОТМЕНА] В базе данных пока нет сегодняшних дейликов.")
         return
 
     jsondata = json.dumps(payload).encode('utf-8')
@@ -142,9 +120,9 @@ def send_to_discord():
     )
     try:
         with urllib.request.urlopen(req, timeout=15) as res:
-            print(f"[УСПЕХ] Доставлено в Discord! Статус: {res.getcode()}")
+            print(f"[УСПЕХ] Карточки доставлены! Код: {res.getcode()}")
     except Exception as e:
-        print(f"[ОШИБКА ОТПРАВКИ]: {e}")
+        print(f"[ОШИБКА ОТПРАВКИ В ДИСКОРД]: {e}")
 
 if __name__ == "__main__":
     send_to_discord()
