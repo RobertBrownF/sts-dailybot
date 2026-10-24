@@ -7,6 +7,7 @@ DISCORD_WEBHOOK_URL = "https://discord.com/api/webhooks/1563585917363552417/tMox
 def get_runs():
     url = "https://spire-codex.com"
     try:
+        # Устанавливаем жесткий тайм-аут 10 секунд, чтобы скрипт никогда не зависал
         req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
         with urllib.request.urlopen(req, timeout=10) as response:
             return json.loads(response.read().decode())
@@ -77,11 +78,9 @@ def send_to_discord(main, beta):
         headers={'Content-Type': 'application/json', 'User-Agent': 'Mozilla/5.0'}
     )
     try:
-        with urllib.request.urlopen(req) as res:
-            if res.getcode() in:
-                print("Успешно отправлено в Discord!")
-            else:
-                print(f"Дискорд вернул код ответа: {res.getcode()}")
+        # Просто отправляем данные без лишних запутанных проверок кодов ответов
+        with urllib.request.urlopen(req, timeout=10) as res:
+            print("Скрипт успешно отработал!")
     except Exception as e:
         print(f"Ошибка отправки в Discord: {e}")
 
