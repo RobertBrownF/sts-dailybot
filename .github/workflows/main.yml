@@ -2,7 +2,7 @@ name: Run StS Daily Bot
 
 on:
   schedule:
-    - cron: '0 6 * * *' # Запуск каждый день в 06:00 UTC
+    - cron: '0 6 * * *' # Автоматический запуск каждый день в 06:00 UTC
   workflow_dispatch: # Кнопка ручного запуска
 
 jobs:
@@ -20,4 +20,5 @@ jobs:
       - name: Run script
         env:
           DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
+          SPIRE_CODEX_API_KEY: ${{ secrets.SPIRE_CODEX_API_KEY }}
         run: python bot.py
