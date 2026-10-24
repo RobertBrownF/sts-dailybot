@@ -1,18 +1,18 @@
 import json
 import urllib.request
+import urllib.error
 
-# ВСТАВЬ СВОЮ ССЫЛКУ МЕЖДУ КАВЫЧКАМИ НИЖЕ:
+# ВСТАВЬТЕ ВАШУ ССЫЛКУ МЕЖДУ КАВЫЧКАМИ НИЖЕ:
 DISCORD_WEBHOOK_URL = "https://discord.com/api/webhooks/1563585917363552417/tMoxLqmxT_b85qBDFF2uzlCt0oa-by-NyRIsHIW-GR8slgKiDeZPmmHSaY5c63wkYkTH"
 
 def get_runs():
     url = "https://spire-codex.com"
     try:
-        # Устанавливаем жесткий тайм-аут 10 секунд, чтобы скрипт никогда не зависал
         req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
-        with urllib.request.urlopen(req, timeout=10) as response:
-            return json.loads(response.read().decode())
+        with urllib.request.urlopen(req, timeout=15) as response:
+            return json.loads(response.read().decode('utf-8'))
     except Exception as e:
-        print(f"Ошибка получения данных с API: {e}")
+        print(f"Ошибка получения данных с API Spire Codex: {e}")
         return []
 
 def parse_dailies():
@@ -21,6 +21,9 @@ def parse_dailies():
     beta_data = None
 
     for run in runs:
+        if not isinstance(run, dict):
+            continue
+            
         if run.get("game_mode") == "daily" or run.get("is_daily") is True:
             version = run.get("version", "")
             
@@ -42,7 +45,9 @@ def parse_dailies():
 
 def send_to_discord(main, beta):
     def format_mods(mods):
-        return ", ".join(mods) if mods else "Стандартные"
+        if not mods:
+            return "Стандартные"
+        return ", ".join(str(m) for m in mods)
 
     payload = {"embeds": []}
 
@@ -69,20 +74,29 @@ def send_to_discord(main, beta):
         })
 
     if not payload["embeds"]:
-        print("В базе Spire Codex пока нет сегодняшних дейликов.")
+        print("В логах Spire Codex пока нет свежих ежедневных забегов.")
         return
 
+    jsondata = json.dumps(payload).encode('utf-8')
+    
     req = urllib.request.Request(
         DISCORD_WEBHOOK_URL,
-        data=json.dumps(payload).encode('utf-8'),
-        headers={'Content-Type': 'application/json', 'User-Agent': 'Mozilla/5.0'}
+        data=jsondata,
+        headers={
+            'Content-Type': 'application/json',
+            'User-Agent': 'Mozilla/5.0'
+        }
     )
+    
     try:
-        # Просто отправляем данные без лишних запутанных проверок кодов ответов
-        with urllib.request.urlopen(req, timeout=10) as res:
-            print("Скрипт успешно отработал!")
+        with urllib.request.urlopen(req, timeout=15) as res:
+            print(f"Ответ от Discord получен. Статус: {res.getcode()}")
+            print("Сообщение успешно доставлено в чат!")
+    except urllib.error.HTTPError as e:
+        print(f"Discord отклонил запрос. Код ошибки: {e.code}")
+        print(f"Ответ сервера Дискорд: {e.read().decode('utf-8')}")
     except Exception as e:
-        print(f"Ошибка отправки в Discord: {e}")
+        print(f"Непредвиденная ошибка при отправке: {e}")
 
 if __name__ == "__main__":
     main_branch, beta_branch = parse_dailies()
